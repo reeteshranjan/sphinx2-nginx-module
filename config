@@ -1,0 +1,7 @@
+ngx_addon_name=ngx_http_sphinx2_module
+
+HTTP_MODULES="$HTTP_MODULES ngx_http_sphinx2_module"
+
+NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/src/ngx_http_sphinx2_args_parser.h $ngx_addon_dir/src/ngx_http_sphinx2_stream.h $ngx_addon_dir/src/ngx_http_sphinx2_sphx.h"
+
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/src/ngx_http_sphinx2_args_parser.c $ngx_addon_dir/src/ngx_http_sphinx2_stream.c $ngx_addon_dir/src/ngx_http_sphinx2_sphx.c $ngx_addon_dir/src/ngx_http_sphinx2_module.c"

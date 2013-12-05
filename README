@@ -1,0 +1,66 @@
+Name
+
+    nginx-sphinx-module - Nginx upstream module for Sphinx 2.0 search daemon
+
+    *This module is not distributed with the Nginx source.* See the installation
+    instructions.
+
+Status
+
+    Alpha
+
+Version
+
+    0.1
+
+Synopsis
+
+    # Search
+    # /search?&offset=0&nres=20&match=all
+    #         &ranker=proxbm25&rankexpr=
+    #         &sort=relevance&sortby=myattr
+    #         &keywords=Anna+Hazare
+    #         &index=myidx
+    #         &filters=a1,in,range,10,20;a2,ex,range,10,20;a3,in,frange,10.00,20.00
+    #         &group=day,attr,@group desc,attr2
+    #         &maxres=1000
+    #         &geo=latattr,lonattr,10.00,10.00
+    #         &idxweights=myidx:50;othidx:10
+    #         &fldweights=content:100;title:0
+    #         &format=json
+    location /search {
+        set_unescape_uri    $sphinx2_command   "search";
+        set_unescape_uri    $sphx_offset       $arg_offset;
+        set_unescape_uri    $sphx_numresults   $arg_nres;
+        set_unescape_uri    $sphx_matchmode    $arg_match;
+        set_unescape_uri    $sphx_ranker       $arg_ranker;
+        set_unescape_uri    $sphx_rankexpr     $arg_rankexpr;
+        set_unescape_uri    $sphx_sortmode     $arg_sort;
+        set_unescape_uri    $sphx_sortby       $arg_sortby;
+        set_unescape_uri    $sphx_keywords     $arg_keywords;
+        set_unescape_uri    $sphx_index        $arg_index;
+        set_unescape_uri    $sphx_filters      $arg_filters;
+        set_unescape_uri    $sphx_group        $arg_group;
+        set_unescape_uri    $sphx_maxmatches   $arg_maxres;
+        set_unescape_uri    $sphx_geo          $arg_geo;
+        set_unescape_uri    $sphx_indexweights $arg_idxweights;
+        set_unescape_uri    $sphx_fieldweights $arg_fldweights;
+        set_unescape_uri    $sphx_outputtype   $arg_format;
+        set_unescape_uri    $sphx_docid        "0";
+        sphinx2_pass        127.0.0.1:9312;
+    }
+
+Description
+
+    This is an Nginx upstream module that makes nginx talk to a Sphinx
+    (<http://sphinxsearch.com/>) 2.x server in a non-blocking way.
+
+    Following features are supported as of now.
+    1  Searching
+
+    This module supports 3 output formats - XML, JSON and Raw. The URL's
+    outputformat query parameter can be used to specify the desired one.
+
+Limitations
+
+    <TODO>

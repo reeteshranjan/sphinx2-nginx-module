@@ -52,8 +52,10 @@ static ngx_int_t   ngx_http_sphinx2_handler(ngx_http_request_t *r);
 static ngx_int_t   ngx_http_sphinx2_create_request(ngx_http_request_t *r);
 static ngx_int_t   ngx_http_sphinx2_reinit_request(ngx_http_request_t *r);
 static ngx_int_t   ngx_http_sphinx2_process_header(ngx_http_request_t *r);
+#if 0
 static ngx_int_t   ngx_http_sphinx2_filter_init(void *data);
 static ngx_int_t   ngx_http_sphinx2_filter(void *data, ssize_t bytes);
+#endif
 static void        ngx_http_sphinx2_abort_request(ngx_http_request_t *r);
 static void        ngx_http_sphinx2_finalize_request(ngx_http_request_t *r, 
 ngx_int_t rc);
@@ -398,9 +400,9 @@ ngx_http_sphinx2_handler(ngx_http_request_t *r)
 
     ngx_http_set_ctx(r, ctx, ngx_http_sphinx2_module);
 
-    u->input_filter_init = ngx_http_sphinx2_filter_init;
+    /*u->input_filter_init = ngx_http_sphinx2_filter_init;
     u->input_filter = ngx_http_sphinx2_filter;
-    u->input_filter_ctx = ctx;
+    u->input_filter_ctx = ctx;*/
 
     rc = ngx_http_read_client_request_body(r, ngx_http_upstream_init);
 
@@ -679,7 +681,7 @@ ngx_http_sphinx2_process_header(ngx_http_request_t *r)
     return NGX_OK;
 }
 
-
+#if 0
 static ngx_int_t
 ngx_http_sphinx2_filter_init(void *data)
 {
@@ -695,7 +697,7 @@ ngx_http_sphinx2_filter(void *data, ssize_t bytes)
     /* TODO filter impl here */
     return 0; /*ctx->filter(ctx, bytes);*/
 }
-
+#endif
 
 static void
 ngx_http_sphinx2_abort_request(ngx_http_request_t *r)

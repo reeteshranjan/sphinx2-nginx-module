@@ -7,7 +7,7 @@ Name
 
 Status
 
-    Alpha
+    Alpha [Work in progress]
 
 Version
 
@@ -53,18 +53,40 @@ Synopsis
 Description
 
     This is an Nginx upstream module that makes nginx talk to a Sphinx
-    (<http://sphinxsearch.com/>) 2.x server in a non-blocking way.
+    (<http://sphinxsearch.com/>) 2.0.8 server in a non-blocking way.
 
     Following features are supported as of now.
     1  Searching
 
-    This module supports 3 output formats - XML, JSON and Raw. The URL's
-    outputformat query parameter can be used to specify the desired one.
+    The module outputs the raw TCP response from searchd minus the 
+    handshake and header bytes.
+
+Compatibility
+
+    Verified with:
+    
+    *   nginx-1.4.3
+    *   sphinx-2.0.8
 
 Limitations
 
-    <TODO>
+    *   Portions of code are 64-bit specific.
+    *   Portions of code are Little Endian specific.
+    *   Some parameters for Sphinx searchd request have been given default
+        values and user cannot control them through a query string param. The
+        details are as follows:
+        <TODO>
 
 Installation Instructions
 
-    <TODO>
+    *   Get nginx source from nginx.org (see "Comptability" above)
+
+    *   Download a release tarball of sphinx2-nginx-module from
+        https://github.com/reeteshranjan/sphinx2-nginx-module/releases
+
+    *   Include --add-module=/path/to/sphinx2-nginx-module directive in the
+        configure command for building nginx source.
+
+    *   make & make install (assuming you have permission for install folders)
+
+    *   Use sample nginx conf file section above to modify your nginx conf.

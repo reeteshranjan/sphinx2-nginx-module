@@ -26,7 +26,8 @@ typedef enum {
     SPHX2_ARG_INDEX_WEIGHTS,
     SPHX2_ARG_FIELD_WEIGHTS,
     SPHX2_ARG_OUTPUT_FORMAT,
-    SPHX2_ARG_DOCID,
+    SPHX2_ARG_DOCS,
+    SPHX2_ARG_EXCERPT_OPTS,
     SPHX2_ARG_COUNT
 } sphx2_args_t;
 
@@ -37,7 +38,8 @@ typedef struct {
 } ngx_http_sphinx2_loc_conf_t;
 
 typedef struct {
-    ngx_http_request_t            *request;
+    ngx_http_request_t           * request;
+    sphx2_command_t                command;
     sphx2_response_ctx_t           repctx;
 } ngx_http_sphinx2_ctx_t;
 
@@ -84,7 +86,8 @@ static ngx_str_t ngx_http_sphinx2_args[] = {
     ngx_string("sphx_indexweights"), /* SPHX2_ARG_INDEX_WEIGHTS */
     ngx_string("sphx_fieldweights"), /* SPHX2_ARG_FIELD_WEIGHTS */
     ngx_string("sphx_outputtype"),   /* SPHX2_ARG_OUTPUT_FORMAT */
-    ngx_string("sphx_docid"),        /* SPHX2_ARG_DOCID */
+    ngx_string("sphx_docs"),         /* SPHX2_ARG_DOCS */
+    ngx_string("sphx_excerpt_opts"), /* SPHX2_ARG_EXCERPT_OPTS */
 };
 
 static const char* sphx2_command_strs[] = {
@@ -413,16 +416,8 @@ ngx_http_sphinx2_handler(ngx_http_request_t *r)
     return NGX_DONE;
 }
 
-/* parse search arguments */
+/* Macros for argument parsing code for search, excerpt etc. */
 
-static ngx_str_t s_empty_str = ngx_null_string;
-
-ngx_int_t
-ngx_http_sphinx2_parse_search_args(
-    ngx_http_request_t                  * r,
-    ngx_http_sphinx2_loc_conf_t         * slcf,
-    sphx2_search_input_t                * srch_input)
-{
 #define GET_INDEXED_VARIABLE_VAL(r, slcf, arg_no) \
     ngx_int_t i = slcf->arg_idx[arg_no]; \
     ngx_http_variable_value_t * vv = ngx_http_get_indexed_variable(r, i); \
@@ -435,6 +430,8 @@ ngx_http_sphinx2_parse_search_args(
     if(NULL == vvs) { return NGX_ERROR; } \
     if(vv->len != 0) { \
         if(NULL == (vvs->data = ngx_palloc(r->pool, vv->len))) { \
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
+                "Failed to allocate while getting indexed variable"); \
             return NGX_ERROR; \
         } \
         memcpy(vvs->data, vv->data, vv->len); \
@@ -455,22 +452,22 @@ do { \
 #define GET_ARG(arg_no, var) \
 do { \
     GET_INDEXED_VARIABLE_VAL(r, slcf, arg_no); \
-    srch_input->var = vvs; \
+    input->var = vvs; \
 } while(0)
 
 #define PARSE_INT_ARG(arg_no, var, dflt)   \
 do { \
     GET_INDEXED_VARIABLE_VAL(r, slcf, arg_no); \
     if(vvs->len != 0) { \
-        srch_input->var = atoi((const char*)(vvs->data)); \
-    } else { srch_input->var = dflt; } \
+        input->var = atoi((const char*)(vvs->data)); \
+    } else { input->var = dflt; } \
 } while(0)
 
 #define PARSE_LIST_ARG(arg_no, key) \
 do { \
     GET_INDEXED_VARIABLE_VAL(r, slcf, arg_no); \
     if(vvs->len != 0 && NGX_OK != sphx2_parse_ ## key ## _str( \
-                r->pool, vvs, &(srch_input->key), &(srch_input->num_ ## key))) \
+                r->pool, vvs, &(input->key), &(input->num_ ## key))) \
     { return NGX_ERROR; } \
 } while(0)
 
@@ -478,7 +475,7 @@ do { \
 do { \
     GET_INDEXED_VARIABLE_VAL(r, slcf, arg_no); \
     if(vvs->len != 0 && NGX_OK != sphx2_parse_ ## key ## _str( \
-                             r->pool, vvs, &srch_input->key)) \
+                             r->pool, vvs, &input->key)) \
     { return NGX_ERROR; } \
 } while(0)
 
@@ -486,10 +483,20 @@ do { \
 do { \
     GET_INDEXED_VARIABLE_VAL(r, slcf, arg_no); \
     if(NGX_OK != sphx2_parse_ ## key ## _str( \
-                             r->pool, vvs, &srch_input->key)) \
+                             r->pool, vvs, &input->key)) \
     { return NGX_ERROR; } \
 } while(0)
 
+/* parse search arguments */
+
+static ngx_str_t s_empty_str = ngx_null_string;
+
+static ngx_int_t
+ngx_http_sphinx2_parse_search_args(
+    ngx_http_request_t                  * r,
+    ngx_http_sphinx2_loc_conf_t         * slcf,
+    sphx2_search_input_t                * input)
+{
     MUST_HAVE_ARG(SPHX2_ARG_KEYWORDS); 
 
     MUST_HAVE_ARG(SPHX2_ARG_INDEX);
@@ -508,7 +515,7 @@ do { \
     PARSE_ELEM_ARG(SPHX2_ARG_RANKER, ranker);
 
     /* rank expression */
-    if(SPHX2_RANK_EXPR == srch_input->ranker) {
+    if(SPHX2_RANK_EXPR == input->ranker) {
         GET_ARG(SPHX2_ARG_RANK_EXPR, rank_expr);
     }
 
@@ -516,12 +523,12 @@ do { \
     PARSE_ELEM_ARG(SPHX2_ARG_SORT_MODE, sort_mode);
 
     /* sort by */
-    if(SPHX2_SORT_ATTR_ASC == srch_input->sort_mode ||
-       SPHX2_SORT_ATTR_DESC == srch_input->sort_mode)
+    if(SPHX2_SORT_ATTR_ASC == input->sort_mode ||
+       SPHX2_SORT_ATTR_DESC == input->sort_mode)
     {
         GET_ARG(SPHX2_ARG_SORT_BY, sort_by);
     } else {
-        srch_input->sort_by = &s_empty_str;
+        input->sort_by = &s_empty_str;
     }
 
     /* keywords */
@@ -551,6 +558,33 @@ do { \
 
     /* Output format */
     PARSE_ELEM_ARG(SPHX2_ARG_OUTPUT_FORMAT, output_type);
+
+    return(NGX_OK);
+}
+
+static ngx_int_t
+ngx_http_sphinx2_parse_excerpt_args(
+    ngx_http_request_t                  * r,
+    ngx_http_sphinx2_loc_conf_t         * slcf,
+    sphx2_excerpt_input_t               * input)
+{
+    MUST_HAVE_ARG(SPHX2_ARG_KEYWORDS); 
+
+    MUST_HAVE_ARG(SPHX2_ARG_INDEX);
+
+    /* keywords */
+    GET_ARG(SPHX2_ARG_KEYWORDS, keywords);
+
+    /* index */
+    GET_ARG(SPHX2_ARG_INDEX, index);
+
+    /* docs */
+    PARSE_LIST_ARG(SPHX2_ARG_DOCS, docs);
+
+    /* excerpt opts */
+    PARSE_ELEM_ARG_2(SPHX2_ARG_EXCERPT_OPTS, excerpt_opts);
+
+    sphx2_create_opts_flag(input->excerpt_opts);
 
     return(NGX_OK);
 }
@@ -614,11 +648,28 @@ ngx_http_sphinx2_create_request(ngx_http_request_t *r)
             }
             break;
         case SPHX2_COMMAND_EXCERPT:
+            memset(&input, 0, sizeof(input));
+            if(NGX_OK != ngx_http_sphinx2_parse_excerpt_args(
+                             r, slcf, &input.exrp)) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "Sphinx2 query args parse error");
+                return(NGX_ERROR);
+            }
+            if(NGX_ERROR == sphx2_create_excerpt_request(r->pool,
+                                                         &input.exrp, &b))
+            {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "Sphinx2 upstream search req creation failed");
+                return(NGX_ERROR);
+            }
+            break;
         default:
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "Sphinx2 upstream unsupported req type - %u", cmd);
             return NGX_ERROR;
     }
+
+    ctx->command = cmd;
 
     cl = ngx_alloc_chain_link(r->pool);
     if (cl == NULL) {
@@ -667,12 +718,27 @@ ngx_http_sphinx2_process_header(ngx_http_request_t *r)
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_sphinx2_module);
 
-    if(NGX_OK != (status =
+    switch(ctx->command) {
+    case SPHX2_COMMAND_SEARCH:
+        if(NGX_OK != (status =
             sphx2_parse_search_response_header(r->pool, b, &ctx->repctx.srch)))
-    {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "Sphinx2 upstream error processing header");
-        return status;
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "Sphinx2 upstream error processing search response header");
+            return status;
+        }
+        break;
+    case SPHX2_COMMAND_EXCERPT:
+        if(NGX_OK != (status =
+            sphx2_parse_excerpt_response_header(r->pool, b, &ctx->repctx.exrp)))
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "Sphinx2 upstream error processing excerpt response header");
+            return status;
+        }
+        break;
+    default:
+        return(NGX_ERROR);
     }
 
     u->headers_in.status_n = NGX_HTTP_OK;

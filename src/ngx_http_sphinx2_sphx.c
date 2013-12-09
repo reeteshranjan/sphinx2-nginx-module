@@ -133,6 +133,20 @@ static ngx_str_t default_select = ngx_string("*");
 
 /* FUNCTION DEFINITIONS */
 
+#include <ctype.h>
+
+static void s_dump_buffer(u_char* ptr, size_t len) {
+    size_t i; char c;
+    fprintf(stderr, "buf [%lu]: ", len);
+    for(i = 0; i < len; ++i) {
+        c = ptr[i];
+        if(isprint(c)) fprintf(stderr, "%c", c);
+        else if(c < 0x10) fprintf(stderr, "0%x", c);
+        else fprintf(stderr, "%x", c);
+    }
+    fprintf(stderr, "\n");
+}
+
 /* Functions to handle search request */
 
 /*
@@ -284,20 +298,6 @@ s_write_weights_to_stream(
     return(NGX_OK);
 }
 
-#include <ctype.h>
-
-/*static void s_dump_buffer(u_char* ptr, size_t len){
-    size_t i; char c;
-    fprintf(stderr, "buf: ");
-    for(i = 0; i < len; ++i) {
-        c = ptr[i];
-        if(isprint(c)) fprintf(stderr, "%c", c);
-        else if(c < 0x10) fprintf(stderr, "0%x", c);
-        else fprintf(stderr, "%x", c);
-    }
-    fprintf(stderr, "\n");
-}*/
-
 ngx_int_t
 sphx2_create_search_request(
     ngx_pool_t             * pool,
@@ -328,7 +328,7 @@ sphx2_create_search_request(
            sphx2_stream_write_int32(st, (uint32_t)SPHX2_CLI_VERSION)
            /* header - command */
         || sphx2_stream_write_int16(st, (uint16_t)SPHX2_COMMAND_SEARCH)
-           /* header - search */
+           /* header - command ver */
         || sphx2_stream_write_int16(st, (uint16_t)SPHX2_VER_COMMAND_SEARCH)
            /* bytes after this variable in the request */
         || sphx2_stream_write_int32(st, (uint32_t)(request_len + 2 * sz32))
@@ -387,18 +387,140 @@ sphx2_create_search_request(
 
     *b = sphx2_stream_get_buf(st);
 
-    /*s_dump_buffer((*b)->pos, buf_len);*/
+    s_dump_buffer((*b)->pos, buf_len);
 
     return status;
 }
 
-/* Functions to work with search response */
+/* Functions to handle excerpt request */
+
+static size_t
+s_sphx2_excerpt_request_len(sphx2_excerpt_input_t * input)
+{
+    /* constant part of the request */
+
+    /* uint32 elements
+     *
+     * mode, flags, index len, keywords len, before match len,
+     * after match len, chunk separator len, limit, around,
+     * limit passages, limit words, start passage id, html strip mode len,
+     * passage boundary len, docs count
+     */
+
+    static const size_t num_default_32s = 15;
+
+    size_t request_len = sz32 * num_default_32s, i;
+
+    sphx2_doc_t * doc;
+
+    /* variable part */
+    request_len += input->index->len
+        + input->keywords->len
+        + input->excerpt_opts->before_match->len
+        + input->excerpt_opts->after_match->len
+        + input->excerpt_opts->chunk_separator->len
+        + input->excerpt_opts->html_strip_mode->len
+        + input->excerpt_opts->passage_boundary->len;
+
+    doc = input->docs;
+    for(i = 0; i < input->num_docs; ++i) {
+        request_len += (sz32 + doc->doc->len);
+        doc = doc->next;
+    }
+
+    return(request_len);
+}
+
+static ngx_int_t
+s_write_docs_to_stream(
+    uint32_t           num_docs,
+    sphx2_doc_t      * docs,
+    sphx2_stream_t   * st)
+{
+    size_t           i;
+    ngx_int_t        status;
+    sphx2_doc_t    * d;
+
+    d = docs;
+
+    for(i = 0; i < num_docs; ++i) {
+        status = sphx2_stream_write_string(st, d->doc);
+
+        if(NGX_OK != status) return(status);
+
+        d = d->next;
+    }
+
+    return(NGX_OK);
+}
 
 ngx_int_t
-sphx2_parse_search_response_header(
-    ngx_pool_t                     * pool,
-    ngx_buf_t                      * b,
-    sphx2_search_response_ctx_t    * ctx)
+sphx2_create_excerpt_request(
+    ngx_pool_t             * pool,
+    sphx2_excerpt_input_t  * input,
+    ngx_buf_t             ** b)
+{
+    size_t request_len = s_sphx2_excerpt_request_len(input);
+
+    /* data to send =
+     *   handshake = version [4]
+     * . header = command [2] . command_version [2] . bytes following [4]
+     * . request [request_len]
+     */
+    size_t buf_len = (2 * sz16 + 2 * sz32) + request_len;
+
+    sphx2_stream_t* st = sphx2_stream_create(pool);
+
+    ngx_int_t status;
+
+    if(NGX_ERROR == sphx2_stream_alloc(st, buf_len)) {
+        return(NGX_ERROR);
+    }
+
+    status =
+           /* handshake */
+           sphx2_stream_write_int32(st, (uint32_t)SPHX2_CLI_VERSION)
+           /* header - command */
+        || sphx2_stream_write_int16(st, (uint16_t)SPHX2_COMMAND_EXCERPT)
+           /* header - command ver */
+        || sphx2_stream_write_int16(st, (uint16_t)SPHX2_VER_COMMAND_EXCERPT)
+           /* bytes after this variable in the request */
+        || sphx2_stream_write_int32(st, (uint32_t)request_len)
+           /* the excerpt request here onwards ... */
+        || sphx2_stream_write_int32(st, (uint32_t)0) /* mode = 0 */
+        || sphx2_stream_write_int32(st, input->excerpt_opts->opts_flag)
+        || sphx2_stream_write_string(st, input->index)
+        || sphx2_stream_write_string(st, input->keywords)
+        || sphx2_stream_write_string(st, input->excerpt_opts->before_match)
+        || sphx2_stream_write_string(st, input->excerpt_opts->after_match)
+        || sphx2_stream_write_string(st, input->excerpt_opts->chunk_separator)
+        || sphx2_stream_write_int32(st, input->excerpt_opts->limit)
+        || sphx2_stream_write_int32(st, input->excerpt_opts->around)
+        || sphx2_stream_write_int32(st, input->excerpt_opts->limit_passages)
+        || sphx2_stream_write_int32(st, input->excerpt_opts->limit_words)
+        || sphx2_stream_write_int32(st, input->excerpt_opts->start_passage_id)
+        || sphx2_stream_write_string(st, input->excerpt_opts->html_strip_mode)
+        || sphx2_stream_write_string(st, input->excerpt_opts->passage_boundary)
+        || sphx2_stream_write_int32(st, input->num_docs)
+        || ((0 != input->num_docs)
+             ? s_write_docs_to_stream(input->num_docs, input->docs, st)
+             : NGX_OK)
+        ;
+
+    *b = sphx2_stream_get_buf(st);
+
+    s_dump_buffer((*b)->pos, buf_len);
+
+    return status;
+}
+
+/* Functions to work with searchd response */
+
+static ngx_int_t
+s_sphx2_parse_response_header(
+    ngx_pool_t      * pool,
+    ngx_buf_t       * b,
+    uint32_t        * len)
 {
     ngx_int_t       status;
     sphx2_stream_t* st;
@@ -431,10 +553,10 @@ sphx2_parse_search_response_header(
         case SPHX2_SEARCHD_ERROR:
         case SPHX2_SEARCHD_RETRY:
         case SPHX2_SEARCHD_WARNING:
-            if(NGX_ERROR == sphx2_stream_read_int32(st, &ctx->len)) {
+            if(NGX_ERROR == sphx2_stream_read_int32(st, len)) {
                 return(NGX_HTTP_UPSTREAM_INVALID_HEADER);
             }
-            /*s_dump_buffer(b->pos, ctx->len);*/
+            s_dump_buffer(b->pos, *len);
             break;
         default:
             return(NGX_HTTP_UPSTREAM_INVALID_HEADER);
@@ -443,7 +565,25 @@ sphx2_parse_search_response_header(
     return(NGX_OK);
 }
 
-/* Functions to work with the sphinx2_search_[12] directives */
+ngx_int_t
+sphx2_parse_search_response_header(
+    ngx_pool_t                     * pool,
+    ngx_buf_t                      * b,
+    sphx2_search_response_ctx_t    * ctx)
+{
+    return(s_sphx2_parse_response_header(pool, b, &ctx->len));
+}
+
+ngx_int_t
+sphx2_parse_excerpt_response_header(
+    ngx_pool_t                     * pool,
+    ngx_buf_t                      * b,
+    sphx2_excerpt_response_ctx_t    * ctx)
+{
+    return(s_sphx2_parse_response_header(pool, b, &ctx->len));
+}
+
+/* Functions to work with URL query param arg parsing */
 
 #define DEFINE_ENUM_ARG_PARSE_FUNCTION(key)    \
 ngx_int_t \
@@ -481,22 +621,81 @@ sphx2_parse_ ## key ## _str( \
     return NGX_OK; \
 }
 
+#define MULTI_ARG_PARSE_FUNCTION_SIGNATURE(key) \
+ngx_int_t \
+sphx2_parse_ ## key ## s_str( \
+    ngx_pool_t        * pool, \
+    ngx_str_t         * key ## s_str, \
+    sphx2_## key ## _t   ** key ## s, \
+    uint32_t          * num_ ## key ## s)
+
+#define MULTI_ARG_PARSE_FUNCTION_BODY(key, elem_delim) \
+    sphx2_ ## key ## _t *key; \
+ \
+    assert(NULL != key ## s_str && 0 != key ## s_str->len); \
+ \
+    *key ## s = NULL; \
+    *num_ ## key ## s = 0; \
+ \
+    if(NGX_ERROR == sphx2_arg_parse_register(&s_main_ctxt, \
+        pool, (char*)key ## s_str->data, NULL, s_multi_delim)) \
+    { \
+        return(NGX_ERROR); \
+    } \
+ \
+    while(NGX_ERROR != sphx2_arg_step(&s_main_ctxt)) { \
+ \
+        if(NGX_ERROR == sphx2_arg_parse_register_child( \
+                           &s_sec_ctxt, &s_main_ctxt, pool, \
+                           s_ ## key ## _hints, elem_delim)) \
+        { \
+            return(NGX_ERROR); \
+        } \
+ \
+        if(NULL == (key = \
+                ngx_pcalloc(pool, sizeof(sphx2_ ## key ## _t)))) \
+        { \
+            return NGX_ERROR; \
+        } \
+ \
+        if(NGX_ERROR == sphx2_arg_parse_whole_using_hints(&s_sec_ctxt, key)) \
+        { \
+            return NGX_ERROR; \
+        } \
+ \
+        LIST_ADD(*key ## s, key, *num_ ## key ## s); \
+    } \
+ \
+    return NGX_OK;
+
+#define SET_ARG_PARSE_FUNCTION_SIGNATURE(key) \
+ngx_int_t \
+sphx2_parse_ ## key ## _str( \
+    ngx_pool_t          * pool, \
+    ngx_str_t           * key ## _str, \
+    sphx2_ ## key ## _t ** key) \
+
+#define SET_ARG_PARSE_FUNCTION_BODY(key) \
+    if(NGX_ERROR == sphx2_arg_parse_register(&s_main_ctxt, \
+        pool, (char*)key ## _str->data, s_ ## key ## _hints, s_set_delim)) \
+    { \
+        return(NGX_ERROR); \
+    } \
+ \
+    if(NULL == (*key = ngx_pcalloc(pool, sizeof(sphx2_ ## key ## _t)))) { \
+        return NGX_ERROR; \
+    } \
+ \
+    return(sphx2_arg_parse_whole_using_hints(&s_main_ctxt, *key));
+
 
 DEFINE_ENUM_ARG_PARSE_FUNCTION(match_mode)
 DEFINE_ENUM_ARG_PARSE_FUNCTION(ranker)
 DEFINE_ENUM_ARG_PARSE_FUNCTION(sort_mode)
 DEFINE_ENUM_ARG_PARSE_FUNCTION(output_type)
 
-
-ngx_int_t
-sphx2_parse_weights_str(
-    ngx_pool_t        * pool,
-    ngx_str_t         * weights_str,
-    sphx2_weight_t   ** weights,
-    uint32_t          * num_weights)
+MULTI_ARG_PARSE_FUNCTION_SIGNATURE(weight)
 {
-    sphx2_weight_t *weight;
-
     sphx2_arg_parse_hint_t s_weight_hints[] =
     {
         { SPHX2_ARG_TYPE_STRING, NULL, 0 },
@@ -504,53 +703,11 @@ sphx2_parse_weights_str(
         { SPHX2_ARG_TYPE_NONE, NULL, 0 }
     };
 
-    assert(NULL != weights_str && 0 != weights_str->len);
-
-    *weights = NULL;
-    *num_weights = 0;
-
-    if(NGX_ERROR == sphx2_arg_parse_register(&s_main_ctxt,
-        pool, (char*)weights_str->data, NULL, s_multi_delim))
-    {
-        return(NGX_ERROR);
-    }
-
-    while(NGX_ERROR != sphx2_arg_step(&s_main_ctxt)) {
-
-        if(NGX_ERROR == sphx2_arg_parse_register_child(
-                           &s_sec_ctxt, &s_main_ctxt, pool,
-                           s_weight_hints, s_key_val_delim))
-        {
-            return(NGX_ERROR);
-        }
-
-        if(NULL == (weight =
-                ngx_pcalloc(pool, sizeof(sphx2_weight_t))))
-        {
-            return NGX_ERROR;
-        }
-
-        if(NGX_ERROR == sphx2_arg_parse_whole_using_hints(
-                            &s_sec_ctxt, weight))
-        {
-            return NGX_ERROR;
-        }
-
-        LIST_ADD(*weights, weight, *num_weights);
-    }
-
-    return NGX_OK;
+    MULTI_ARG_PARSE_FUNCTION_BODY(weight, s_key_val_delim)
 }
 
-ngx_int_t
-sphx2_parse_filters_str(
-    ngx_pool_t        * pool,
-    ngx_str_t         * filters_str,
-    sphx2_filter_t   ** filters,
-    uint32_t          * num_filters)
+MULTI_ARG_PARSE_FUNCTION_SIGNATURE(filter)
 {
-    sphx2_filter_t *filter;
-
     sphx2_arg_parse_hint_t s_filter_hints[] =
     {
         { SPHX2_ARG_TYPE_STRING, NULL, 0 },
@@ -561,52 +718,13 @@ sphx2_parse_filters_str(
         { SPHX2_ARG_TYPE_NONE, NULL, 0 }
     };
 
-    assert(NULL != filters_str && 0 != filters_str->len);
-
-    *filters = NULL;
-    *num_filters = 0;
-
-    if(NGX_ERROR == sphx2_arg_parse_register(&s_main_ctxt,
-        pool, (char*)filters_str->data, NULL, s_multi_delim))
-    {
-        return(NGX_ERROR);
-    }
-
-    while(NGX_ERROR != sphx2_arg_step(&s_main_ctxt)) {
-
-        if(NGX_ERROR == sphx2_arg_parse_register_child(
-                           &s_sec_ctxt, &s_main_ctxt, pool,
-                           s_filter_hints, s_set_delim))
-        {
-            return(NGX_ERROR);
-        }
-
-        if(NULL == (filter =
-                ngx_pcalloc(pool, sizeof(sphx2_filter_t))))
-        {
-            return NGX_ERROR;
-        }
-
-        if(NGX_ERROR == sphx2_arg_parse_whole_using_hints(
-                            &s_sec_ctxt, filter))
-        {
-            return NGX_ERROR;
-        }
-
-        LIST_ADD(*filters, filter, *num_filters);
-    }
-
-    return NGX_OK;
+    MULTI_ARG_PARSE_FUNCTION_BODY(filter, s_set_delim)
 }
 
 static ngx_str_t s_dflt_sort = ngx_string("@group desc");
 static ngx_str_t s_empty_str = ngx_null_string;
 
-ngx_int_t
-sphx2_parse_group_str(
-    ngx_pool_t          * pool,
-    ngx_str_t           * group_str,
-    sphx2_group_t      ** group)
+SET_ARG_PARSE_FUNCTION_SIGNATURE(group)
 {
     sphx2_arg_parse_hint_t s_group_hints[] =
     {
@@ -632,25 +750,10 @@ sphx2_parse_group_str(
         return(NGX_OK);
     }
 
-    if(NGX_ERROR == sphx2_arg_parse_register(&s_main_ctxt,
-        pool, (char*)group_str->data, s_group_hints, s_set_delim))
-    {
-        return(NGX_ERROR);
-    }
-
-    if(NULL == (*group = ngx_pcalloc(pool, sizeof(sphx2_group_t)))) {
-        return NGX_ERROR;
-    }
-
-    return(sphx2_arg_parse_whole_using_hints(
-            &s_main_ctxt, *group));
+    SET_ARG_PARSE_FUNCTION_BODY(group)
 }
 
-ngx_int_t
-sphx2_parse_geo_str(
-    ngx_pool_t          * pool,
-    ngx_str_t           * geo_str,
-    sphx2_geo_t        ** geo)
+SET_ARG_PARSE_FUNCTION_SIGNATURE(geo)
 {
     sphx2_arg_parse_hint_t s_geo_hints[] =
     {
@@ -663,16 +766,104 @@ sphx2_parse_geo_str(
 
     assert(NULL != geo_str && 0 != geo_str->len);
 
-    if(NGX_ERROR == sphx2_arg_parse_register(&s_main_ctxt,
-        pool, (char*)geo_str->data, s_geo_hints, s_set_delim))
+    SET_ARG_PARSE_FUNCTION_BODY(geo)
+}
+
+MULTI_ARG_PARSE_FUNCTION_SIGNATURE(doc)
+{
+    sphx2_arg_parse_hint_t s_doc_hints[] =
     {
-        return(NGX_ERROR);
+        { SPHX2_ARG_TYPE_STRING, NULL, 0 },
+        { SPHX2_ARG_TYPE_NONE, NULL, 0 }
+    };
+
+    MULTI_ARG_PARSE_FUNCTION_BODY(doc, s_no_delim)
+}
+
+SET_ARG_PARSE_FUNCTION_SIGNATURE(excerpt_opts)
+{
+    sphx2_arg_parse_hint_t s_excerpt_opts_hints[] =
+    {
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_STRING, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_STRING, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_STRING, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_STRING, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_STRING, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_KEYVAL | SPHX2_ARG_TYPE_INTEGER, NULL, 0 },
+        { SPHX2_ARG_TYPE_NONE, NULL, 0 }
+    };
+
+    static ngx_str_t s_default_before_match = ngx_string("<b>");
+    static ngx_str_t s_default_after_match = ngx_string("</b>");
+    static ngx_str_t s_default_chunk_separator = ngx_string(" ... ");
+    static uint32_t s_default_limit = 256;
+    static uint32_t s_default_around = 5;
+    static uint32_t s_default_start_passage_id = 1;
+    static ngx_str_t s_default_html_strip_mode = ngx_string("index");
+    static ngx_str_t s_default_passage_boundary = ngx_string("none");
+
+    if(NULL == excerpt_opts_str || 0 == excerpt_opts_str->len) {
+
+        if(NULL == (*excerpt_opts = ngx_pcalloc(pool,
+                                       sizeof(sphx2_excerpt_opts_t))))
+        {
+            return NGX_ERROR;
+        }
+
+        (*excerpt_opts)->before_match = &s_default_before_match;
+        (*excerpt_opts)->after_match = &s_default_after_match;
+        (*excerpt_opts)->chunk_separator = &s_default_chunk_separator;
+        (*excerpt_opts)->limit = s_default_limit;
+        (*excerpt_opts)->limit_passages = 0;
+        (*excerpt_opts)->limit_words = 0;
+        (*excerpt_opts)->around = s_default_around;
+        (*excerpt_opts)->exact_phrase = 0;
+        (*excerpt_opts)->single_passage = 0;
+        (*excerpt_opts)->use_boundaries = 0;
+        (*excerpt_opts)->weight_order = 0;
+        (*excerpt_opts)->query_mode = 0;
+        (*excerpt_opts)->force_all_words = 0;
+        (*excerpt_opts)->start_passage_id = s_default_start_passage_id;
+        (*excerpt_opts)->load_files = 0;
+        (*excerpt_opts)->html_strip_mode = &s_default_html_strip_mode;
+        (*excerpt_opts)->allow_empty = 0;
+        (*excerpt_opts)->passage_boundary = &s_default_passage_boundary;
+        (*excerpt_opts)->emit_zones = 0;
+        (*excerpt_opts)->load_files_scattered = 0;
+
+        return(NGX_OK);
     }
 
-    if(NULL == (*geo = ngx_pcalloc(pool, sizeof(sphx2_geo_t)))) {
-        return NGX_ERROR;
-    }
+    SET_ARG_PARSE_FUNCTION_BODY(excerpt_opts)
+}
 
-    return(sphx2_arg_parse_whole_using_hints(
-            &s_main_ctxt, *geo));
+void
+sphx2_create_opts_flag(sphx2_excerpt_opts_t * excerpt_opts)
+{
+    excerpt_opts->opts_flag = 1;
+
+    if ( excerpt_opts->exact_phrase != 0 )    excerpt_opts->opts_flag |= 2;
+    if ( excerpt_opts->single_passage != 0 )  excerpt_opts->opts_flag |= 4;
+    if ( excerpt_opts->use_boundaries != 0 )  excerpt_opts->opts_flag |= 8;
+    if ( excerpt_opts->weight_order != 0 )    excerpt_opts->opts_flag |= 16;
+    if ( excerpt_opts->query_mode != 0 )      excerpt_opts->opts_flag |= 32;
+    if ( excerpt_opts->force_all_words != 0 ) excerpt_opts->opts_flag |= 64;
+    if ( excerpt_opts->load_files != 0 )      excerpt_opts->opts_flag |= 128;
+    if ( excerpt_opts->allow_empty != 0 )     excerpt_opts->opts_flag |= 256;
+    if ( excerpt_opts->emit_zones != 0 )      excerpt_opts->opts_flag |= 512;
+    if ( excerpt_opts->load_files_scattered != 0 )    excerpt_opts->opts_flag |= 1024;
 }

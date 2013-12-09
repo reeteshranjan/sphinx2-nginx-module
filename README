@@ -1,6 +1,6 @@
 Name
 
-    nginx-sphinx-module - Nginx upstream module for Sphinx 2.0 search daemon
+    sphinx2-nginx-module - Nginx upstream module for Sphinx 2.x search daemon
 
     *This module is not distributed with the Nginx source.* See the installation
     instructions.
@@ -11,12 +11,12 @@ Status
 
 Version
 
-    0.1
+    0.2
 
 Synopsis
 
     # Search
-    # /search?&offset=0&nres=20&match=all
+    # /search?offset=0&nres=20&match=all
     #         &ranker=proxbm25&rankexpr=
     #         &sort=relevance&sortby=myattr
     #         &keywords=Anna+Hazare
@@ -46,7 +46,41 @@ Synopsis
         set_unescape_uri    $sphx_indexweights $arg_idxweights;
         set_unescape_uri    $sphx_fieldweights $arg_fldweights;
         set_unescape_uri    $sphx_outputtype   $arg_format;
-        set_unescape_uri    $sphx_docid        "0";
+        set_unescape_uri    $sphx_docs         "";
+        set_unescape_uri    $sphx_excerpt_opts "";
+        sphinx2_pass        127.0.0.1:9312;
+    }
+
+    # Excerpt
+    # /excerpt?keywords=Anna+Hazare&index=myidx
+    #         &opts=before_match:<b>,after_match:</b>,chunk_separator: ...,
+    #             limit:256,limit_passages:0,limit_words:0,around:5,
+    #             exact_phrase:0,single_passage:0,use_boundaries:0,
+    #             weight_order:0,query_mode:0,force_all_words:0,
+    #             start_passage_id:1,load_files:0,html_strip_mode:index,
+    #             allow_empty:0,passage_boundary:none,emit_zones:0,
+    #             load_files_scattered:0
+    #         &docs=<url-escaped doc strings separated by ;>
+    location /excerpt {
+        set_unescape_uri    $sphinx2_command   "excerpt";
+        set_unescape_uri    $sphx_offset       "";
+        set_unescape_uri    $sphx_numresults   "";
+        set_unescape_uri    $sphx_matchmode    "";
+        set_unescape_uri    $sphx_ranker       "";
+        set_unescape_uri    $sphx_rankexpr     "";
+        set_unescape_uri    $sphx_sortmode     "";
+        set_unescape_uri    $sphx_sortby       "";
+        set_unescape_uri    $sphx_keywords     $arg_keywords;
+        set_unescape_uri    $sphx_index        $arg_index;
+        set_unescape_uri    $sphx_filters      "";
+        set_unescape_uri    $sphx_group        "";
+        set_unescape_uri    $sphx_maxmatches   "";
+        set_unescape_uri    $sphx_geo          "";
+        set_unescape_uri    $sphx_indexweights "";
+        set_unescape_uri    $sphx_fieldweights "";
+        set_unescape_uri    $sphx_outputtype   "";
+        set_unescape_uri    $sphx_docs         $arg_docs;
+        set_unescape_uri    $sphx_excerpt_opts $arg_opts;
         sphinx2_pass        127.0.0.1:9312;
     }
 
@@ -56,7 +90,8 @@ Description
     (<http://sphinxsearch.com/>) 2.0.8 server in a non-blocking way.
 
     Following features are supported as of now.
-    1  Searching
+    1  Search
+    2  Excerpt
 
     The module outputs the raw TCP response from searchd minus the 
     handshake and header bytes.
@@ -90,3 +125,7 @@ Installation Instructions
     *   make & make install (assuming you have permission for install folders)
 
     *   Use sample nginx conf file section above to modify your nginx conf.
+
+Query Parameters Description
+
+    <TODO>

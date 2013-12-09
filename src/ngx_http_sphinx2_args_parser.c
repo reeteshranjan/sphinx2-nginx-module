@@ -47,8 +47,24 @@ sphx2_arg_parse_register_child(
 ngx_int_t
 sphx2_arg_step(sphx2_arg_parse_ctx_t * ctxt)
 {
+#define SPHX2_ARG_KEYVAL_DELIM ':'
+
+    if(NULL == ctxt->input || 0 == *(ctxt->input)) {
+        return NGX_ERROR;
+    }
+
     if(NULL == (ctxt->curr = strsep(&ctxt->input, ctxt->delimiter))) {
         return NGX_ERROR;
+    }
+
+    /* in case the token is a key-val pair then we need to further token parse*/
+    if(ctxt->hints &&
+       ctxt->hints[ctxt->num_tokens].param_type & SPHX2_ARG_TYPE_KEYVAL)
+    {
+        if(NULL == (ctxt->curr = strchr(ctxt->curr, SPHX2_ARG_KEYVAL_DELIM)))
+            return NGX_ERROR;
+
+        ctxt->curr = ctxt->curr + 1; /* move to value part */
     }
 
     ++ctxt->num_tokens;
@@ -217,7 +233,8 @@ do { \
 
     while(SPHX2_ARG_TYPE_NONE != ctxt->hints[i].param_type) {
 
-        switch(ctxt->hints[i].param_type) {
+        switch(ctxt->hints[i].param_type & SPHX2_ARG_TYPE_MASK) {
+
         case SPHX2_ARG_TYPE_INTEGER:
             if((uint32_t)NGX_ERROR == (v.i = sphx2_arg_parse_get_int_arg(ctxt)))
             {

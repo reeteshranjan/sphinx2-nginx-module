@@ -207,11 +207,46 @@ typedef struct {
     sphx2_output_type_t    output_type;
 } sphx2_search_input_t;
 
+/* A document */
+typedef struct sphx2_doc_s sphx2_doc_t;
+
+struct sphx2_doc_s {
+    ngx_str_t            * doc;
+    sphx2_doc_t          * next;
+};
+
+/* Excerpt opts */
+typedef struct {
+    ngx_str_t            * before_match;
+    ngx_str_t            * after_match;
+    ngx_str_t            * chunk_separator;
+    uint32_t               limit;
+    uint32_t               limit_passages;
+    uint32_t               limit_words;
+    uint32_t               around;
+    uint32_t               exact_phrase;
+    uint32_t               single_passage;
+    uint32_t               use_boundaries;
+    uint32_t               weight_order;
+    uint32_t               query_mode;
+    uint32_t               force_all_words;
+    uint32_t               start_passage_id;
+    uint32_t               load_files;
+    ngx_str_t            * html_strip_mode;
+    uint32_t               allow_empty;
+    ngx_str_t            * passage_boundary;
+    uint32_t               emit_zones;
+    uint32_t               load_files_scattered;
+    uint32_t               opts_flag;
+} sphx2_excerpt_opts_t;
+
 /* Input to excerpt command */
 typedef struct {
     ngx_str_t            * keywords;
     ngx_str_t            * index;
-    uint32_t               doc_id;
+    uint32_t               num_docs;
+    sphx2_doc_t          * docs;
+    sphx2_excerpt_opts_t * excerpt_opts;
 } sphx2_excerpt_input_t;
 
 /* Input - union */
@@ -233,7 +268,7 @@ typedef struct {
 /* Response context */
 typedef union {
     sphx2_search_response_ctx_t     srch;
-    sphx2_excerpt_response_ctx_t    excrpt;
+    sphx2_excerpt_response_ctx_t    exrp;
 } sphx2_response_ctx_t;
 
 
@@ -267,6 +302,15 @@ sphx2_parse_output_type_str(ngx_pool_t*, ngx_str_t*, sphx2_output_type_t*);
 ngx_int_t
 sphx2_parse_geo_str(ngx_pool_t*, ngx_str_t*, sphx2_geo_t**);
 
+ngx_int_t
+sphx2_parse_docs_str(ngx_pool_t*, ngx_str_t*, sphx2_doc_t**, uint32_t*);
+
+ngx_int_t
+sphx2_parse_excerpt_opts_str(ngx_pool_t*, ngx_str_t*, sphx2_excerpt_opts_t**);
+
+void
+sphx2_create_opts_flag(sphx2_excerpt_opts_t*);
+
 
 /* Requests & Responses */
 ngx_int_t  
@@ -275,6 +319,13 @@ sphx2_create_search_request(ngx_pool_t*, sphx2_search_input_t*, ngx_buf_t**);
 ngx_int_t
 sphx2_parse_search_response_header(ngx_pool_t*, ngx_buf_t*,
     sphx2_search_response_ctx_t*);
+
+ngx_int_t  
+sphx2_create_excerpt_request(ngx_pool_t*, sphx2_excerpt_input_t*, ngx_buf_t**);
+
+ngx_int_t
+sphx2_parse_excerpt_response_header(ngx_pool_t*, ngx_buf_t*,
+    sphx2_excerpt_response_ctx_t*);
 
 /* GLOBALS */
 

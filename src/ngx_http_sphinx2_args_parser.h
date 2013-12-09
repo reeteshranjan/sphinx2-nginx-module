@@ -10,12 +10,15 @@
 
 typedef enum {
     SPHX2_ARG_TYPE_NONE =  0,
-    SPHX2_ARG_TYPE_INTEGER,
-    SPHX2_ARG_TYPE_INTEGER64,
-    SPHX2_ARG_TYPE_FLOAT,
-    SPHX2_ARG_TYPE_STRING,
-    SPHX2_ARG_TYPE_ENUM
+    SPHX2_ARG_TYPE_INTEGER = 0x01,
+    SPHX2_ARG_TYPE_INTEGER64 = 0x02,
+    SPHX2_ARG_TYPE_FLOAT = 0x04,
+    SPHX2_ARG_TYPE_STRING = 0x08,
+    SPHX2_ARG_TYPE_ENUM = 0x10,
+    SPHX2_ARG_TYPE_KEYVAL = 0x1000
 } sphx2_arg_type_t;
+
+#define SPHX2_ARG_TYPE_MASK  0x1F
 
 typedef struct {
     sphx2_arg_type_t     param_type;

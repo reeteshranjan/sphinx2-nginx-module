@@ -1,6 +1,7 @@
-Name
+sphinx2-nginx-module
+====================
 
-    sphinx2-nginx-module - Nginx upstream module for Sphinx 2.x search daemon
+    Nginx upstream module for Sphinx 2.x search daemon
 
     *This module is not distributed with the Nginx source.* See the installation
     instructions.
